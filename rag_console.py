@@ -4,6 +4,7 @@ import sys
 from pprint import pprint
 
 import chromadb
+import ollama
 
 from chromadb.utils.embedding_functions.ollama_embedding_function import OllamaEmbeddingFunction
 
@@ -13,6 +14,27 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 path_chroma="chroma"
 path_documents_base="documents"
 
+system_prompt = """
+You are an AI assistant tasked with providing answers based solely on the given context. Your goal is to analyze the information provided and formulate a comprehensive, well-structured response to the question.
+
+context will be passed as "Context:"
+user question will be passed as "Question:"
+
+To answer the question:
+1. Thoroughly analyze the context, identifying key information relevant to the question.
+2. Organize your thoughts and plan your response to ensure a logical flow of information.
+3. Formulate a detailed answer that directly addresses the question, using only the information provided in the context.
+4. Ensure your answer is comprehensive, covering all relevant aspects found in the context.
+5. If the context doesn't contain sufficient information to fully answer the question, state this clearly in your response.
+
+Format your response as follows:
+1. Use concise language.
+2. Organize your answer into paragraphs.
+3. Use bullet points or numbered lists where appropriate to break down complex information.
+4. If relevant, include any headings or subheadings to structure your response.
+
+Important: Base your entire response solely on the information provided in the context. Do not include any external knowledge or assumptions not present in the given text.
+"""
 
 def load_documents(path_documents):
     document_loader = PyPDFDirectoryLoader(path_documents)
@@ -70,6 +92,40 @@ def add_to_vector_collection(collection_name_current, chunks):
         ids=ids,
     )
 
+def query_collection(collection_name_current, prompt, n_results = 10):
+    collection = get_vector_collection(collection_name_current)
+    results = collection.query(query_texts=[prompt], n_results=n_results)
+    return results
+
+def generate_context(documents):
+    context = ""
+    
+    for document in documents:
+        context += document
+
+    return context
+
+def call_llm(context, prompt):
+    response = ollama.chat(
+        model="llama3.2:latest",
+        stream=True,
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": f"Context: {context}, Question: {prompt}",
+            },
+        ],
+    )
+    for chunk in response:
+        if chunk["done"] is False:
+            yield chunk["message"]["content"]
+        else:
+            break
+
 def main():
     #use python console_rag.py -p to make it process files in documents
     parser = argparse.ArgumentParser(description="Rag Console App")
@@ -98,6 +154,19 @@ def main():
         add_to_vector_collection(collection_name_current, chunks)
 
         sys.exit()
+    
+    while True:
+        user_query = input("Human: ")
+        if user_query == "done":
+            return
+        
+        results = query_collection(collection_name_current, user_query)
+        context = generate_context(results.get("documents")[0])
+        
+        print("AI: ", end="")
+        for chunk in call_llm(context=context, prompt=user_query):
+            print(chunk, end="")
+        print()
 
 if __name__ == "__main__":
     main()
