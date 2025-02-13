@@ -3,6 +3,8 @@ import sys
 
 from pprint import pprint
 
+import streamlit as st
+
 import chromadb
 import ollama
 
@@ -185,5 +187,54 @@ def main():
             print(chunk, end="")
         print()
 
+def webapp():
+
+    collection_name_current = "small_world"
+
+    st.set_page_config(layout="wide")
+
+    col1, col2, col3 = st.columns([3,2,1])
+
+    with st.sidebar:
+        st.write("Process documents")
+
+        collection_name_current = st.text_input("current collection")
+        btn_set_collection = st.button("set collection to")
+        if btn_set_collection:
+            st.write(f"current collection is set to: {collection_name_current}")
+        
+        btn_process = st.button("process documents in collection")
+        if collection_name_current and btn_process:
+            #process files in documents
+            path_documents = path_documents_base+"/"+collection_name_current
+            documents = load_documents(path_documents)
+            chunks = split_documents(documents)
+            add_to_vector_collection(collection_name_current, chunks)
+            st.success(f"documents in {collection_name_current} processed")
+    
+    with col1:
+        user_query = st.text_input("Your query?")
+        btn_ask = st.button("Ask")
+        if user_query and btn_ask:
+            with st.chat_message("assistant"):
+                results = query_collection(collection_name_current, user_query)
+                #context = generate_context(results.get("documents")[0])
+                list_docus = results.get("documents")[0]
+                context, relevant_text_ids = re_rank_cross_encoders(user_query, list_docus)
+                stream = call_llm(context=context, prompt=user_query)
+                response = st.write_stream(stream)
+
+    with col2:
+        if user_query and btn_ask:
+            with st.expander("initial results"):
+                st.write(results)
+    
+    with col3:
+        if user_query and btn_ask:
+            with st.expander("info about retrieved context"):
+                st.write(relevant_text_ids)
+                st.write(context)
+
 if __name__ == "__main__":
-    main()
+    #main()
+    webapp()
